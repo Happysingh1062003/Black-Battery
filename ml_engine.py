@@ -106,12 +106,12 @@ class ChargingPredictor:
             rate = session_elapsed_minutes / delta_level
             method = "session-average"
 
-        # Priority 3: Historical average at this level
+        # Priority 3: Historical best accuracy (at startup)
         elif self._has_historical():
-            rate = self._historical_avg_rate()
-            method = "historical-only"
+            rate = "historical"
+            method = "historical-best"
 
-        if rate is None or rate <= 0:
+        if rate is None or (isinstance(rate, (int, float)) and rate <= 0):
             return {"minutes": None, "confidence": 0, "method": "collecting"}
 
         # --- Sum per-level time estimates ---
@@ -120,9 +120,17 @@ class ChargingPredictor:
         has_hist = self._has_historical()
 
         for level in range(current_level, target_level):
-            level_rate = self._rate_at_level(
-                level, rate, current_level, has_hist
-            )
+            if rate == "historical":
+                # Use exact historical data for this specific level if available
+                key = str(level)
+                if key in self.historical_rates:
+                    level_rate = self._avg(self.historical_rates[key])
+                else:
+                    level_rate = self._historical_avg_rate() or 1.0
+            else:
+                level_rate = self._rate_at_level(
+                    level, rate, current_level, has_hist
+                )
             total_minutes += level_rate
 
         # --- Confidence ---
@@ -133,6 +141,9 @@ class ChargingPredictor:
 
         if has_hist and session_transitions_count >= 3:
             method = "ml-calibrated"
+        elif method == "historical-best":
+            # Very accurate initial estimate based on past sessions
+            confidence = min(0.9, confidence + 0.3)
 
         return {
             "minutes": round(max(0, total_minutes), 1),

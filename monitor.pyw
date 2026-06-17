@@ -15,25 +15,36 @@ def is_server_running():
         try:
             if p.info['name'] in ('python.exe', 'pythonw.exe'):
                 cmd = p.info['cmdline']
-                if cmd and any("server.py" in arg for arg in cmd):
+                if cmd and any("server.py" in arg for arg in cmd) and "--auto-close" in cmd:
                     return True
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     return False
 
+def log(msg):
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitor_log.txt"), "a") as f:
+        f.write(f"{time.ctime()}: {msg}\n")
+
 def main():
+    log("Monitor started.")
     while True:
         battery = psutil.sensors_battery()
         if battery is not None:
             is_plugged = battery.power_plugged
+            running = is_server_running()
+            log(f"Battery: {battery.percent}%, Plugged: {is_plugged}, Server Running: {running}")
             
-            if is_plugged and not is_server_running():
-                # Launch the visible dashboard in a new CMD window
-                # The 'start' command opens a new independent window
-                subprocess.Popen(
-                    f'start "Black Battery" "{sys.executable}" "{SERVER_SCRIPT}" --auto-close', 
-                    shell=True
-                )
+            if is_plugged and not running:
+                log("Attempting to spawn server...")
+                python_exe = sys.executable.replace("pythonw.exe", "python.exe")
+                try:
+                    subprocess.Popen(
+                        f'start "Black Battery" "{python_exe}" "{SERVER_SCRIPT}" --auto-close',
+                        shell=True
+                    )
+                    log("Server spawn success.")
+                except Exception as e:
+                    log(f"Spawn error: {e}")
                 
         time.sleep(5)
 
